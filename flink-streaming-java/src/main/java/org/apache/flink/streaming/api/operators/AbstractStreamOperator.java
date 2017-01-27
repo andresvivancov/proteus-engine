@@ -18,13 +18,14 @@
 
 package org.apache.flink.streaming.api.operators;
 
-import java.io.IOException;
+import com.google.common.collect.Maps;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.math3.stat.descriptive.DescriptiveStatistics;
 import org.apache.flink.annotation.PublicEvolving;
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.state.KeyedStateStore;
+import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.api.common.state.State;
 import org.apache.flink.api.common.state.StateDescriptor;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
@@ -60,20 +61,27 @@ import org.apache.flink.runtime.state.StreamStateHandle;
 import org.apache.flink.runtime.state.VoidNamespace;
 import org.apache.flink.runtime.state.VoidNamespaceSerializer;
 import org.apache.flink.streaming.api.graph.StreamConfig;
+import org.apache.flink.streaming.api.transformations.utils.SideInputInformation;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.streamrecord.LatencyMarker;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.streaming.runtime.tasks.OperatorStateHandles;
 import org.apache.flink.streaming.runtime.tasks.ProcessingTimeService;
 import org.apache.flink.streaming.runtime.tasks.StreamTask;
+import org.apache.flink.util.Preconditions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.ConcurrentModificationException;
 import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import static org.apache.flink.util.Preconditions.checkArgument;
 
@@ -96,7 +104,9 @@ public abstract class AbstractStreamOperator<OUT>
 		implements StreamOperator<OUT>, Serializable, KeyContext {
 
 	private static final long serialVersionUID = 1L;
-	
+
+	private static final String MAIN_INPUT_COLLECTOR = "__MAIN_INPUT__";
+
 	/** The logger used by the operator class and its subclasses */
 	protected static final Logger LOG = LoggerFactory.getLogger(AbstractStreamOperator.class);
 
@@ -138,6 +148,11 @@ public abstract class AbstractStreamOperator<OUT>
 
 	/** Operator state backend / store */
 	private transient OperatorStateBackend operatorStateBackend;
+
+	// --------------- Side Input ---------------------------
+
+	private transient Map<UUID, ArrayList<?>> sideInputsCollector;
+	private transient ArrayList<StreamRecord<?>> mainInputCollector;
 
 	// --------------- Metrics ---------------------------
 
@@ -187,6 +202,17 @@ public abstract class AbstractStreamOperator<OUT>
 
 		stateKeySelector1 = config.getStatePartitioner(0, getUserCodeClassloader());
 		stateKeySelector2 = config.getStatePartitioner(1, getUserCodeClassloader());
+
+		int numberOfSideInput = config.getNumberOfSideInputs();
+		if (numberOfSideInput > 0 && sideInputsCollector == null) {
+			sideInputsCollector = Maps.newHashMapWithExpectedSize(numberOfSideInput);
+			Map<Integer, SideInputInformation<?>> infos = config.getSideInputsTypeSerializers(getUserCodeClassloader());
+			for (SideInputInformation<?> info : infos.values()) {
+				sideInputsCollector.put(info.getId(), new ArrayList());
+			}
+			mainInputCollector = new ArrayList<>();
+		}
+
 	}
 	
 	@Override
@@ -955,5 +981,30 @@ public abstract class AbstractStreamOperator<OUT>
 	public int numEventTimeTimers() {
 		return timeServiceManager == null ? 0 :
 			timeServiceManager.numEventTimeTimers();
+	}
+
+
+	// ------------------------------------------------------------------------
+	//  side input handling
+	// ------------------------------------------------------------------------
+
+	@SuppressWarnings("unchecked")
+	public void processSideInputElement(UUID id, StreamRecord<?> record) throws Exception {
+		((ArrayList)sideInputsCollector.get(id)).add(record.getValue());
+	}
+
+	public void bufferMainElement(StreamRecord<?> record) throws Exception {
+		mainInputCollector.add(record);
+	}
+
+	@SuppressWarnings("unchecked")
+	public <T> List<T> getSideInput(UUID id) {
+		ArrayList<?> sideInput = sideInputsCollector.get(id);
+		Preconditions.checkNotNull(sideInput, "look up of a not added side input");
+		return (List<T>) sideInput;
+	}
+
+	public Iterator<StreamRecord<?>> getBufferedElements() throws Exception {
+		return mainInputCollector.iterator();
 	}
 }

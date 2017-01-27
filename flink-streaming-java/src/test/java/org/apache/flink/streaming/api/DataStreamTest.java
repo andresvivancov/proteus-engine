@@ -17,6 +17,7 @@
 
 package org.apache.flink.streaming.api;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.flink.api.common.functions.FilterFunction;
@@ -26,7 +27,9 @@ import org.apache.flink.api.common.functions.Function;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.functions.Partitioner;
 import org.apache.flink.api.common.operators.ResourceSpec;
+import org.apache.flink.api.common.functions.util.SideInput;
 import org.apache.flink.api.java.functions.KeySelector;
+import org.apache.flink.api.java.tuple.Tuple;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.typeutils.TypeExtractor;
 import org.apache.flink.streaming.api.collector.selector.OutputSelector;
@@ -63,6 +66,7 @@ import org.apache.flink.streaming.runtime.partitioner.ShufflePartitioner;
 import org.apache.flink.streaming.runtime.partitioner.StreamPartitioner;
 import org.apache.flink.util.Collector;
 
+import org.apache.flink.util.NumberSequenceIterator;
 import org.junit.Test;
 
 import static org.junit.Assert.*;
@@ -864,6 +868,115 @@ public class DataStreamTest {
 				env.getStreamGraph().getStreamEdges(src.getId(),
 						globalSink.getTransformation().getId()).get(0).getPartitioner();
 		assertTrue(globalPartitioner instanceof GlobalPartitioner);
+	}
+
+
+	@Test
+	public void testSideInputs() throws Exception {
+		// set up the execution environment
+		final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+		env.setParallelism(4);
+		env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
+		env.getCheckpointConfig().setCheckpointInterval(100);
+		//env.getCheckpointConfig().setCheckpointingMode(CheckpointingMode.AT_LEAST_ONCE);
+
+		DataStream<String> source1 = env.fromElements("Hello", "There", "What", "up");
+
+		DataStream<Long> sideSource1 = env.generateSequence(0, 1000);
+		DataStream<String> sideSource2 = env.fromElements("A", "B", "C");
+
+		final SideInput<Long> sideInput1 = env.newBroadcastedSideInput(sideSource1);
+		final SideInput<String> sideInput2 = env.newBroadcastedSideInput(sideSource2);
+
+		source1
+			.map(new RichMapFunction<String, String>() {
+				@Override
+				public String map(String value) throws Exception {
+					ArrayList<Long> side = (ArrayList<Long>) getRuntimeContext().getSideInput(sideInput1);
+					System.out.println("SEEING MAIN INPUT: " + value + " on " +
+						getRuntimeContext().getTaskNameWithSubtasks() + " with " + side.size());
+					return value;
+				}
+			})
+			.withSideInput(sideInput1)
+			.withSideInput(sideInput2)
+		;
+		env.execute("side inputs");
+	}
+
+	@Test
+	public void testSideInputsForward() throws Exception {
+		// set up the execution environment
+		final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+		env.setParallelism(4);
+		env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
+		env.getCheckpointConfig().setCheckpointInterval(100);
+		//env.getCheckpointConfig().setCheckpointingMode(CheckpointingMode.AT_LEAST_ONCE);
+
+		DataStream<String> source1 = env.fromElements("Hello", "There", "What", "up");
+
+		DataStream<Long> sideSource1 = env.generateSequence(0, 1000);
+		DataStream<String> sideSource2 = env.fromElements("A", "B", "C");
+
+		final SideInput<Long> sideInput1 = env.newForwardedSideInput(sideSource1);
+		final SideInput<String> sideInput2 = env.newBroadcastedSideInput(sideSource2);
+
+		source1.rebalance()
+			.map(new RichMapFunction<String, String>() {
+				@Override
+				public String map(String value) throws Exception {
+					ArrayList<Long> side = (ArrayList<Long>) getRuntimeContext().getSideInput(sideInput1);
+					System.out.println("SEEING MAIN INPUT: " + value + " on " + getRuntimeContext().getTaskNameWithSubtasks() + " with " + side.size());
+					return value;
+				}
+			})
+			.withSideInput(sideInput1)
+			.withSideInput(sideInput2)
+		;
+		env.execute("side inputs");
+	}
+
+	@Test
+	public void testSideInputsKeyed() throws Exception {
+		// set up the execution environment
+		final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+		env.setParallelism(4);
+		env.setMaxParallelism(1 << 15);
+		env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
+		env.getCheckpointConfig().setCheckpointInterval(100);
+		//env.getCheckpointConfig().setCheckpointingMode(CheckpointingMode.AT_LEAST_ONCE);
+
+		DataStream<String> source1 = env.fromElements("Hello", "There", "What", "up");
+
+		DataStream<Tuple2<Long, String>> sideSource = env.generateSequence(0, 3).map(new RichMapFunction<Long, Tuple2<Long, String>>() {
+			@Override
+			public Tuple2<Long, String> map(Long value) throws Exception {
+				String[] strings = new String[] { "Hello", "There", "What", "up" };
+				System.out.println("SEEING MAIN INPUT: " + value + " " + strings[value.intValue() % 4] + " on " + getRuntimeContext().getTaskNameWithSubtasks());
+				return new Tuple2<>(value, strings[value.intValue() % 4]);
+			}
+		});
+
+		final SideInput<Tuple2<Long, String>> sideInput = env.newKeyedSideInput(sideSource, 1);
+
+		source1.map(new MapFunction<String, Tuple2<String, Integer>>() {
+
+			@Override
+			public Tuple2<String, Integer> map(String value) throws Exception {
+				return new Tuple2<>(value, 0);
+			}
+		}).keyBy(0)
+			.map(new RichMapFunction<Tuple2<String, Integer>, String>() {
+				@Override
+				public String map(Tuple2<String, Integer> value) throws Exception {
+					ArrayList<Tuple2<Long, String>> side = (ArrayList<Tuple2<Long, String>>) getRuntimeContext().getSideInput(sideInput);
+					System.out.println("SEEING MAIN INPUT: " + value.f0 + " on " + getRuntimeContext().getTaskNameWithSubtasks() + " with " + side);
+					return value.f0;
+				}
+			})
+			.withSideInput(sideInput)
+		;
+		env.execute("side inputs");
 	}
 
 	/////////////////////////////////////////////////////////////

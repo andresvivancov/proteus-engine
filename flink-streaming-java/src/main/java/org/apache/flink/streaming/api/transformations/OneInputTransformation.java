@@ -25,7 +25,11 @@ import org.apache.flink.streaming.api.operators.ChainingStrategy;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 
 import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 /**
  * This Transformation represents the application of a
@@ -46,6 +50,8 @@ public class OneInputTransformation<IN, OUT> extends StreamTransformation<OUT> {
 	
 	private TypeInformation<?> stateKeyType;
 
+	private final HashMap<UUID, StreamTransformation<?>> sideInputs;
+
 	/**
 	 * Creates a new {@code OneInputTransformation} from the given input and operator.
 	 *
@@ -64,6 +70,7 @@ public class OneInputTransformation<IN, OUT> extends StreamTransformation<OUT> {
 		super(name, outputType, parallelism);
 		this.input = input;
 		this.operator = operator;
+		this.sideInputs = new HashMap<>();
 	}
 
 	/**
@@ -119,11 +126,36 @@ public class OneInputTransformation<IN, OUT> extends StreamTransformation<OUT> {
 		List<StreamTransformation<?>> result = Lists.newArrayList();
 		result.add(this);
 		result.addAll(input.getTransitivePredecessors());
+		for (StreamTransformation<?> transformation : sideInputs.values()) {
+			result.addAll(transformation.getTransitivePredecessors());
+		}
 		return result;
 	}
 
 	@Override
 	public final void setChainingStrategy(ChainingStrategy strategy) {
 		operator.setChainingStrategy(strategy);
+	}
+
+
+	// --------------------------------------------------------------------
+ 	// side inputs handling
+	// --------------------------------------------------------------------
+
+	@Override
+	public <R> void registerSideInput(UUID id, StreamTransformation<R> transformation) {
+		if (!sideInputs.containsKey(id)) {
+			sideInputs.put(id, transformation);
+		} else {
+			throw new RuntimeException("cannot add an already added side input");
+		}
+	}
+
+	public boolean hasSideInputs() {
+		return sideInputs.size() > 0;
+	}
+
+	public Map<UUID, StreamTransformation<?>> getSideInputs() {
+		return Collections.unmodifiableMap(sideInputs);
 	}
 }

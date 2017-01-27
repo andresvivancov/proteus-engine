@@ -36,6 +36,7 @@ import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.collector.selector.OutputSelector;
 import org.apache.flink.streaming.api.operators.StreamOperator;
 import org.apache.flink.runtime.state.AbstractStateBackend;
+import org.apache.flink.streaming.api.transformations.utils.SideInputInformation;
 import org.apache.flink.streaming.runtime.tasks.StreamTaskException;
 import org.apache.flink.util.InstantiationUtil;
 
@@ -80,6 +81,9 @@ public class StreamConfig implements Serializable {
 	private static final String STATE_KEY_SERIALIZER = "statekeyser";
 	
 	private static final String TIME_CHARACTERISTIC = "timechar";
+
+	private static final String NUMBER_OF_SIDE_INPUTS = "numberOfSideInputs";
+	private static final String SIDE_INPUTS_INFOS = "sideInputsInfos";
 	
 	// ------------------------------------------------------------------------
 	//  Default Values
@@ -465,6 +469,35 @@ public class StreamConfig implements Serializable {
 		}
 	}
 
+	// ------------------------------------------------------------------------
+	//  Side Input
+	// ------------------------------------------------------------------------
+
+	public void setNumberOfSideInputs(int sideInputsTypeSerializersCount) {
+		config.setInteger(NUMBER_OF_SIDE_INPUTS, sideInputsTypeSerializersCount);
+	}
+
+	public void setSideInputsTypeSerializers(Map<Integer, SideInputInformation<?>> sideInputsTypeSerializers) {
+		try {
+			InstantiationUtil.writeObjectToConfig(sideInputsTypeSerializers, this.config, SIDE_INPUTS_INFOS);
+		} catch (Exception e) {
+			throw new StreamTaskException("Could not serialize side input info.", e);
+		}
+	}
+
+
+	public Map<Integer, SideInputInformation<?>> getSideInputsTypeSerializers(ClassLoader cl) {
+		try {
+			return InstantiationUtil.readObjectFromConfig(this.config, SIDE_INPUTS_INFOS, cl);
+		} catch (Exception e) {
+			throw new StreamTaskException("Could not instantiate side input info.", e);
+		}
+	}
+
+
+	public int getNumberOfSideInputs() {
+		return config.getInteger(NUMBER_OF_SIDE_INPUTS, 0);
+	}
 
 	
 	// ------------------------------------------------------------------------

@@ -18,6 +18,7 @@
 package org.apache.flink.streaming.api.transformations;
 
 
+import eu.proteus.flink.annotaton.Proteus;
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.common.functions.InvalidTypesException;
 import org.apache.flink.api.common.operators.ResourceSpec;
@@ -29,6 +30,7 @@ import org.apache.flink.streaming.api.operators.ChainingStrategy;
 import org.apache.flink.util.Preconditions;
 
 import java.util.Collection;
+import java.util.UUID;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
@@ -466,4 +468,10 @@ public abstract class StreamTransformation<T> {
 		result = 31 * result + (int) (bufferTimeout ^ (bufferTimeout >>> 32));
 		return result;
 	}
+
+	@Proteus
+	public <R> void registerSideInput(UUID id, StreamTransformation<R> transformation) {
+		throw new UnsupportedOperationException();
+	}
+
 }
