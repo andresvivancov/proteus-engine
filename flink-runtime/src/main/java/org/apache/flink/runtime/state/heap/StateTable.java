@@ -63,12 +63,14 @@ public class StateTable<K, N, ST> {
 	}
 
 	public void set(int index, Map<N, Map<K, ST>> map) {
+		final int offset = indexToOffset(index);
 		try {
-			state[indexToOffset(index)] = map;
+			state[offset] = map;
 		}
 		catch (ArrayIndexOutOfBoundsException e) {
 			throw new IllegalArgumentException("Key group index out of range of key group range [" +
-					keyGroupOffset + ", " + (keyGroupOffset + state.length) + ").");
+					keyGroupOffset + ", " + (keyGroupOffset + state.length) + "), requested " +
+					index + ", got " + offset + ".");
 		}
 	}
 

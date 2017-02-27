@@ -62,6 +62,13 @@ import org.apache.flink.util.Collector
 class WindowedStream[T, K, W <: Window](javaStream: JavaWStream[T, K, W]) {
 
   /**
+   * Returns the [[StreamExecutionEnvironment]] associated with this data stream
+   */
+  def executionEnvironment: StreamExecutionEnvironment =
+    new StreamExecutionEnvironment(javaStream.getExecutionEnvironment())
+
+
+  /**
     * Sets the allowed lateness to a user-specified value.
     * If not explicitly set, the allowed lateness is [[0L]].
     * Setting the allowed lateness is only valid for event-time windows.

@@ -110,8 +110,9 @@ public class KeyGroupRange implements KeyGroupsList, Serializable {
 
 	@Override
 	public int getKeyGroupId(int idx) {
-		if (idx < 0 || idx > getNumberOfKeyGroups()) {
-			throw new IndexOutOfBoundsException("Key group index out of bounds: " + idx);
+		final int count = getNumberOfKeyGroups();
+		if (idx < 0 || idx > count) {
+			throw new IndexOutOfBoundsException("Key group index out of bounds: " + idx + ", total key groups: " + count);
 		}
 		return startKeyGroup + idx;
 	}

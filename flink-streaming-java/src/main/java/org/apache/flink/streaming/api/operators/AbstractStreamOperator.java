@@ -25,7 +25,6 @@ import org.apache.flink.annotation.PublicEvolving;
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.state.KeyedStateStore;
-import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.api.common.state.State;
 import org.apache.flink.api.common.state.StateDescriptor;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
@@ -308,14 +307,19 @@ public abstract class AbstractStreamOperator<OUT>
 			TypeSerializer<Object> keySerializer = config.getStateKeySerializer(getUserCodeClassloader());
 			// create a keyed state backend if there is keyed state, as indicated by the presence of a key serializer
 			if (null != keySerializer) {
+
+				final int numberOfKeyGroups = container.getEnvironment().getTaskInfo().getNumberOfKeyGroups();
+				final int numberOfParallelSubtasks = container.getEnvironment().getTaskInfo().getNumberOfParallelSubtasks();
+				final int indexOfThisSubtask = container.getEnvironment().getTaskInfo().getIndexOfThisSubtask();
+
 				KeyGroupRange subTaskKeyGroupRange = KeyGroupRangeAssignment.computeKeyGroupRangeForOperatorIndex(
-						container.getEnvironment().getTaskInfo().getNumberOfKeyGroups(),
-						container.getEnvironment().getTaskInfo().getNumberOfParallelSubtasks(),
-						container.getEnvironment().getTaskInfo().getIndexOfThisSubtask());
+						numberOfKeyGroups,
+						numberOfParallelSubtasks,
+						indexOfThisSubtask);
 
 				this.keyedStateBackend = container.createKeyedStateBackend(
 						keySerializer,
-						container.getEnvironment().getTaskInfo().getNumberOfKeyGroups(),
+						numberOfKeyGroups,
 						subTaskKeyGroupRange);
 
 				this.keyedStateStore = new DefaultKeyedStateStore(keyedStateBackend, getExecutionConfig());
